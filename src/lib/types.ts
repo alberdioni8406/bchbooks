@@ -134,4 +134,4 @@ export const DEFAULT_CATEGORIES: Omit<Category, 'id' | 'createdAt'>[] = [
 ];
 
 export const DEFAULT_DONATION_ADDRESS =
-  'bitcoincash:qrtv37u522gz8a5lezfqk5vukly93cu7gc8tn09040'; // REPLACE WITH YOUR REAL BCH ADDRESS
+  'bitcoincash:qqqcvk6c8shxy63rmuv32s9yfgk52d83f5u4yam838'; // REPLACE WITH YOUR REAL BCH ADDRESS
