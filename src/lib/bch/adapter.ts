@@ -1,6 +1,6 @@
 /**
- * BCH Adapter – isolates blockchain access from the accounting engine.
- * Uses the internal /api/bch proxy (provider-agnostic interface).
+ * BCH Adapter — Haskoin Store mirror via /api/bch proxy.
+ * Accounting engine never calls the chain API directly.
  */
 
 import type { ProviderAddressInfo, ProviderTx } from '../providers/types';
@@ -10,7 +10,7 @@ const API = '/api/bch';
 
 async function apiGet(params: Record<string, string>) {
   const qs = new URLSearchParams(params).toString();
-  const res = await fetch(`${API}?${qs}`);
+  const res = await fetch(`\( {API}? \){qs}`);
   const json = await res.json();
   if (!res.ok) {
     throw new Error(json.error || `Provider error ${res.status}`);
@@ -18,53 +18,64 @@ async function apiGet(params: Record<string, string>) {
   return json;
 }
 
-export async function fetchAddressInfo(address: string): Promise<ProviderAddressInfo> {
+export async function fetchAddressInfo(
+  address: string
+): Promise<ProviderAddressInfo> {
   const addr = normalizeAddress(address);
   const { data } = await apiGet({ action: 'address', address: addr });
-  // Esplora-style: chain_stats / mempool_stats
-  const chain = data.chain_stats || {};
-  const mem = data.mempool_stats || {};
+
+  // Haskoin balance:
+  // { address, confirmed, unconfirmed, utxo, txs, received }
+  const confirmed = Number(data.confirmed ?? 0);
+  const unconfirmed = Number(data.unconfirmed ?? 0);
+  const received = Number(data.received ?? confirmed);
+  const txs = Number(data.txs ?? 0);
+
   return {
     address: addr,
-    balanceSats: (chain.funded_txo_sum || 0) - (chain.spent_txo_sum || 0) +
-      ((mem.funded_txo_sum || 0) - (mem.spent_txo_sum || 0)),
-    totalReceivedSats: chain.funded_txo_sum || 0,
-    totalSentSats: chain.spent_txo_sum || 0,
-    txCount: (chain.tx_count || 0) + (mem.tx_count || 0),
-    unconfirmedBalanceSats: (mem.funded_txo_sum || 0) - (mem.spent_txo_sum || 0),
+    balanceSats: confirmed + unconfirmed,
+    totalReceivedSats: received,
+    totalSentSats: Math.max(0, received - confirmed),
+    txCount: txs,
+    unconfirmedBalanceSats: unconfirmed,
   };
 }
 
-export async function fetchAddressTransactions(address: string): Promise<ProviderTx[]> {
+export async function fetchAddressTransactions(
+  address: string
+): Promise<ProviderTx[]> {
   const addr = normalizeAddress(address);
-  const { data } = await apiGet({ action: 'txs', address: addr });
+  const { data } = await apiGet({
+    action: 'txs',
+    address: addr,
+    limit: '50',
+  });
   if (!Array.isArray(data)) return [];
 
   return data.map((raw: Record<string, unknown>): ProviderTx => {
-    const status = (raw.status || {}) as Record<string, unknown>;
-    const vin = Array.isArray(raw.vin) ? raw.vin : [];
-    const vout = Array.isArray(raw.vout) ? raw.vout : [];
+    const block = (raw.block || {}) as Record<string, unknown>;
+    const inputs = Array.isArray(raw.inputs) ? raw.inputs : [];
+    const outputs = Array.isArray(raw.outputs) ? raw.outputs : [];
+    const height = block.height != null ? Number(block.height) : null;
+    const time = raw.time != null ? Number(raw.time) : null;
 
     return {
       txid: String(raw.txid || ''),
-      blockHeight: status.block_height != null ? Number(status.block_height) : null,
-      blockTime: status.block_time != null ? Number(status.block_time) : null,
-      confirmations: status.confirmed ? 1 : 0, // real count needs tip height; approximate
+      blockHeight: height,
+      blockTime: time,
+      confirmations: height != null ? 1 : 0,
       feeSats: raw.fee != null ? Number(raw.fee) : null,
-      vin: vin.map((v: Record<string, unknown>) => {
-        const prev = (v.prevout || {}) as Record<string, unknown>;
-        return {
-          address: (prev.scriptpubkey_address as string) || null,
-          valueSats: prev.value != null ? Number(prev.value) : null,
-          isCoinbase: Boolean(v.is_coinbase),
-        };
-      }),
-      vout: vout.map((o: Record<string, unknown>, i: number) => ({
-        address: (o.scriptpubkey_address as string) || null,
+      vin: inputs.map((v: Record<string, unknown>) => ({
+        address: (v.address as string) || null,
+        valueSats: v.value != null ? Number(v.value) : null,
+        isCoinbase: Boolean(v.coinbase),
+      })),
+      vout: outputs.map((o: Record<string, unknown>, i: number) => ({
+        address: (o.address as string) || null,
         valueSats: Number(o.value || 0),
         n: i,
       })),
-      memo: null, // memo extraction can be added when OP_RETURN parsing is available
+      memo: null,
     };
   });
 }
