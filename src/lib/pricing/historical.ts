@@ -41,7 +41,7 @@ export async function getHistoricalValuation(
       timestamp: String(timestampUnix),
       currency: fiat,
     });
-    const res = await fetch(`/api/bch?${qs}`);
+    const res = await fetch('/api/bch?' + qs.toString());
     const json = await res.json();
 
     if (!res.ok || !json.available || json.data == null) {
