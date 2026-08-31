@@ -10,13 +10,14 @@ const API = '/api/bch';
 
 async function apiGet(params: Record<string, string>) {
   const qs = new URLSearchParams(params).toString();
-  const res = await fetch(`\( {API}? \){qs}`);
+  const url = API + '?' + qs;
+  const res = await fetch(url);
   const text = await res.text();
 
-  // Server returned HTML (404 page, error page, etc.)
   if (text.trimStart().startsWith('<')) {
     throw new Error(
-      'API route returned HTML instead of JSON. Check that src/app/api/bch/route.ts is deployed.'
+      'API route returned HTML instead of JSON. Check that src/app/api/bch/route.ts is deployed. URL was: ' +
+        url
     );
   }
 
@@ -30,7 +31,7 @@ async function apiGet(params: Record<string, string>) {
   if (!res.ok) {
     throw new Error(
       (typeof json.error === 'string' && json.error) ||
-        `Provider error ${res.status}`
+        'Provider error ' + String(res.status)
     );
   }
 
@@ -41,10 +42,11 @@ export async function fetchAddressInfo(
   address: string
 ): Promise<ProviderAddressInfo> {
   const addr = normalizeAddress(address);
-  const { data } = (await apiGet({
+  const result = (await apiGet({
     action: 'address',
     address: addr,
   })) as { data: Record<string, unknown> };
+  const data = result.data;
 
   const confirmed = Number(data.confirmed ?? 0);
   const unconfirmed = Number(data.unconfirmed ?? 0);
@@ -65,15 +67,16 @@ export async function fetchAddressTransactions(
   address: string
 ): Promise<ProviderTx[]> {
   const addr = normalizeAddress(address);
-  const { data } = (await apiGet({
+  const result = (await apiGet({
     action: 'txs',
     address: addr,
     limit: '50',
   })) as { data: unknown };
 
+  const data = result.data;
   if (!Array.isArray(data)) return [];
 
-  return data.map((raw: Record<string, unknown>): ProviderTx => {
+  return data.map(function (raw: Record<string, unknown>): ProviderTx {
     const block = (raw.block || {}) as Record<string, unknown>;
     const inputs = Array.isArray(raw.inputs) ? raw.inputs : [];
     const outputs = Array.isArray(raw.outputs) ? raw.outputs : [];
@@ -86,16 +89,20 @@ export async function fetchAddressTransactions(
       blockTime: time,
       confirmations: height != null ? 1 : 0,
       feeSats: raw.fee != null ? Number(raw.fee) : null,
-      vin: inputs.map((v: Record<string, unknown>) => ({
-        address: (v.address as string) || null,
-        valueSats: v.value != null ? Number(v.value) : null,
-        isCoinbase: Boolean(v.coinbase),
-      })),
-      vout: outputs.map((o: Record<string, unknown>, i: number) => ({
-        address: (o.address as string) || null,
-        valueSats: Number(o.value || 0),
-        n: i,
-      })),
+      vin: inputs.map(function (v: Record<string, unknown>) {
+        return {
+          address: (v.address as string) || null,
+          valueSats: v.value != null ? Number(v.value) : null,
+          isCoinbase: Boolean(v.coinbase),
+        };
+      }),
+      vout: outputs.map(function (o: Record<string, unknown>, i: number) {
+        return {
+          address: (o.address as string) || null,
+          valueSats: Number(o.value || 0),
+          n: i,
+        };
+      }),
       memo: null,
     };
   });
