@@ -1,6 +1,5 @@
 /**
- * Local-first storage using IndexedDB via a lightweight promise wrapper.
- * Structured so encrypted cloud backup can be added later.
+ * Local-first storage using IndexedDB.
  */
 
 import type {
@@ -11,8 +10,8 @@ import type {
   AppPreferences,
 } from '../types';
 
-const DB_NAME = 'bchbooks';
-const DB_VERSION = 1;
+var DB_NAME = 'bchbooks';
+var DB_VERSION = 1;
 
 type StoreName =
   | 'addresses'
@@ -22,22 +21,33 @@ type StoreName =
   | 'preferences'
   | 'meta';
 
+function uid(): string {
+  return (
+    Date.now().toString(36) +
+    Math.random().toString(36).slice(2, 10)
+  );
+}
+
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  return new Promise(function (resolve, reject) {
     if (typeof indexedDB === 'undefined') {
       reject(new Error('IndexedDB is not available'));
       return;
     }
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onerror = () => reject(req.error ?? new Error('Failed to open DB'));
-    req.onsuccess = () => resolve(req.result);
-    req.onupgradeneeded = () => {
-      const db = req.result;
+    var req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onerror = function () {
+      reject(req.error || new Error('Failed to open DB'));
+    };
+    req.onsuccess = function () {
+      resolve(req.result);
+    };
+    req.onupgradeneeded = function () {
+      var db = req.result;
       if (!db.objectStoreNames.contains('addresses')) {
         db.createObjectStore('addresses', { keyPath: 'id' });
       }
       if (!db.objectStoreNames.contains('transactions')) {
-        const txStore = db.createObjectStore('transactions', { keyPath: 'id' });
+        var txStore = db.createObjectStore('transactions', { keyPath: 'id' });
         txStore.createIndex('by_address', 'address', { unique: false });
         txStore.createIndex('by_date', 'date', { unique: false });
         txStore.createIndex('by_category', 'categoryId', { unique: false });
@@ -58,103 +68,155 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-async function withStore<T>(
+function withStore<T>(
   storeName: StoreName,
   mode: IDBTransactionMode,
   fn: (store: IDBObjectStore) => IDBRequest<T> | void
 ): Promise<T> {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, mode);
-    const store = tx.objectStore(storeName);
-    const result = fn(store);
-    tx.oncomplete = () => {
-      if (result && 'result' in result) {
-        resolve(result.result as T);
-      } else {
-        resolve(undefined as T);
+  return openDb().then(function (db) {
+    return new Promise(function (resolve, reject) {
+      var tx = db.transaction(storeName, mode);
+      var store = tx.objectStore(storeName);
+      var result = fn(store);
+      tx.oncomplete = function () {
+        if (result && 'result' in result) {
+          resolve(result.result as T);
+        } else {
+          resolve(undefined as T);
+        }
+      };
+      tx.onerror = function () {
+        reject(tx.error);
+      };
+      if (result && 'onerror' in result) {
+        result.onerror = function () {
+          reject(result.error);
+        };
       }
-    };
-    tx.onerror = () => reject(tx.error);
-    if (result && 'onerror' in result) {
-      result.onerror = () => reject(result.error);
-    }
+    });
   });
 }
 
-function uid(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
 export async function ensureDefaults(): Promise<void> {
-  const cats = await getAllCategories();
+  var cats = await getAllCategories();
   if (cats.length === 0) {
-    const { DEFAULT_CATEGORIES } = await import('../types');
-    for (const c of DEFAULT_CATEGORIES) {
+    var { DEFAULT_CATEGORIES } = await import('../types');
+    var now = new Date().toISOString();
+    for (var i = 0; i < DEFAULT_CATEGORIES.length; i++) {
+      var c = DEFAULT_CATEGORIES[i];
       await putCategory({
         id: uid(),
-        ...c,
-        createdAt: new Date().toISOString(),
+        name: c.name,
+        type: c.type,
+        isDefault: c.isDefault,
+        createdAt: now,
       });
     }
   }
-  const prefs = await getPreferences();
+  var prefs = await getPreferences();
   if (!prefs) {
-    const { DEFAULT_DONATION_ADDRESS } = await import('../types');
+    var { DEFAULT_DONATION_ADDRESS } = await import('../types');
     await setPreferences({
+      key: 'app',
       fiatCurrency: 'USD',
       period: 'this_month',
       customFrom: null,
       customTo: null,
       donationAddress: DEFAULT_DONATION_ADDRESS,
-    });
+    } as AppPreferences);
   }
 }
 
-// --- Addresses ---
 export async function getAllAddresses(): Promise<WatchedAddress[]> {
-  return withStore('addresses', 'readonly', (s) => s.getAll());
+  return withStore('addresses', 'readonly', function (s) {
+    return s.getAll();
+  });
 }
 
 export async function putAddress(addr: WatchedAddress): Promise<void> {
-  await withStore('addresses', 'readwrite', (s) => s.put(addr));
+  await withStore('addresses', 'readwrite', function (s) {
+    s.put(addr);
+  });
 }
 
 export async function deleteAddress(id: string): Promise<void> {
-  await withStore('addresses', 'readwrite', (s) => s.delete(id));
+  await withStore('addresses', 'readwrite', function (s) {
+    s.delete(id);
+  });
 }
 
-// --- Transactions ---
 export async function getAllTransactions(): Promise<NormalizedTransaction[]> {
-  return withStore('transactions', 'readonly', (s) => s.getAll());
+  return withStore('transactions', 'readonly', function (s) {
+    return s.getAll();
+  });
 }
 
 export async function getTransactionsByAddress(
   address: string
 ): Promise<NormalizedTransaction[]> {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('transactions', 'readonly');
-    const store = tx.objectStore('transactions');
-    const idx = store.index('by_address');
-    const req = idx.getAll(address);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+  var db = await openDb();
+  return new Promise(function (resolve, reject) {
+    var tx = db.transaction('transactions', 'readonly');
+    var store = tx.objectStore('transactions');
+    var index = store.index('by_address');
+    var req = index.getAll(address);
+    req.onsuccess = function () {
+      resolve(req.result as NormalizedTransaction[]);
+    };
+    req.onerror = function () {
+      reject(req.error);
+    };
   });
 }
 
 export async function putTransaction(tx: NormalizedTransaction): Promise<void> {
-  await withStore('transactions', 'readwrite', (s) => s.put(tx));
+  await withStore('transactions', 'readwrite', function (s) {
+    s.put(tx);
+  });
 }
 
-export async function putTransactions(txs: NormalizedTransaction[]): Promise<void> {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('transactions', 'readwrite');
-    const store = tx.objectStore('transactions');
-    for (const t of txs) store.put(t);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+export async function putTransactions(
+  txs: NormalizedTransaction[]
+): Promise<void> {
+  var db = await openDb();
+  return new Promise(function (resolve, reject) {
+    var tx = db.transaction('transactions', 'readwrite');
+    var store = tx.objectStore('transactions');
+    for (var i = 0; i < txs.length; i++) {
+      store.put(txs[i]);
+    }
+    tx.oncomplete = function () {
+      resolve();
+    };
+    tx.onerror = function () {
+      reject(tx.error);
+    };
+  });
+}
+
+/** Remove all local transactions for one watched address (does not touch other addresses). */
+export async function deleteTransactionsForAddress(
+  address: string
+): Promise<void> {
+  var db = await openDb();
+  return new Promise(function (resolve, reject) {
+    var tx = db.transaction('transactions', 'readwrite');
+    var store = tx.objectStore('transactions');
+    var index = store.index('by_address');
+    var req = index.openCursor(IDBKeyRange.only(address));
+    req.onsuccess = function () {
+      var cursor = req.result;
+      if (cursor) {
+        cursor.delete();
+        cursor.continue();
+      }
+    };
+    tx.oncomplete = function () {
+      resolve();
+    };
+    tx.onerror = function () {
+      reject(tx.error);
+    };
   });
 }
 
@@ -163,13 +225,13 @@ export async function updateTransactionCategory(
   categoryId: string | null,
   notes?: string | null
 ): Promise<void> {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('transactions', 'readwrite');
-    const store = tx.objectStore('transactions');
-    const req = store.get(id);
-    req.onsuccess = () => {
-      const existing = req.result as NormalizedTransaction | undefined;
+  var db = await openDb();
+  return new Promise(function (resolve, reject) {
+    var tx = db.transaction('transactions', 'readwrite');
+    var store = tx.objectStore('transactions');
+    var req = store.get(id);
+    req.onsuccess = function () {
+      var existing = req.result as NormalizedTransaction | undefined;
       if (!existing) {
         resolve();
         return;
@@ -179,47 +241,60 @@ export async function updateTransactionCategory(
       existing.updatedAt = new Date().toISOString();
       store.put(existing);
     };
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = function () {
+      resolve();
+    };
+    tx.onerror = function () {
+      reject(tx.error);
+    };
   });
 }
 
-// --- Categories ---
 export async function getAllCategories(): Promise<Category[]> {
-  return withStore('categories', 'readonly', (s) => s.getAll());
+  return withStore('categories', 'readonly', function (s) {
+    return s.getAll();
+  });
 }
 
 export async function putCategory(cat: Category): Promise<void> {
-  await withStore('categories', 'readwrite', (s) => s.put(cat));
+  await withStore('categories', 'readwrite', function (s) {
+    s.put(cat);
+  });
 }
 
-// --- Rules ---
 export async function getAllRules(): Promise<ClassificationRule[]> {
-  return withStore('rules', 'readonly', (s) => s.getAll());
+  return withStore('rules', 'readonly', function (s) {
+    return s.getAll();
+  });
 }
 
 export async function putRule(rule: ClassificationRule): Promise<void> {
-  await withStore('rules', 'readwrite', (s) => s.put(rule));
+  await withStore('rules', 'readwrite', function (s) {
+    s.put(rule);
+  });
 }
 
 export async function deleteRule(id: string): Promise<void> {
-  await withStore('rules', 'readwrite', (s) => s.delete(id));
+  await withStore('rules', 'readwrite', function (s) {
+    s.delete(id);
+  });
 }
 
-// --- Preferences ---
 export async function getPreferences(): Promise<AppPreferences | null> {
-  const row = await withStore<{ key: string; value: AppPreferences } | undefined>(
+  var row = await withStore<{ key: string; value: AppPreferences } | undefined>(
     'preferences',
     'readonly',
-    (s) => s.get('app')
+    function (s) {
+      return s.get('app');
+    }
   );
-  return row?.value ?? null;
+  return row && row.value ? row.value : null;
 }
 
 export async function setPreferences(prefs: AppPreferences): Promise<void> {
-  await withStore('preferences', 'readwrite', (s) =>
-    s.put({ key: 'app', value: prefs })
-  );
+  await withStore('preferences', 'readwrite', function (s) {
+    s.put({ key: 'app', value: prefs });
+  });
 }
 
 export { uid };
