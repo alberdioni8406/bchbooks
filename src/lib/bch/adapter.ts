@@ -11,10 +11,29 @@ const API = '/api/bch';
 async function apiGet(params: Record<string, string>) {
   const qs = new URLSearchParams(params).toString();
   const res = await fetch(`\( {API}? \){qs}`);
-  const json = await res.json();
-  if (!res.ok) {
-    throw new Error(json.error || `Provider error ${res.status}`);
+  const text = await res.text();
+
+  // Server returned HTML (404 page, error page, etc.)
+  if (text.trimStart().startsWith('<')) {
+    throw new Error(
+      'API route returned HTML instead of JSON. Check that src/app/api/bch/route.ts is deployed.'
+    );
   }
+
+  let json: Record<string, unknown>;
+  try {
+    json = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error('Provider returned invalid JSON');
+  }
+
+  if (!res.ok) {
+    throw new Error(
+      (typeof json.error === 'string' && json.error) ||
+        `Provider error ${res.status}`
+    );
+  }
+
   return json;
 }
 
@@ -22,10 +41,11 @@ export async function fetchAddressInfo(
   address: string
 ): Promise<ProviderAddressInfo> {
   const addr = normalizeAddress(address);
-  const { data } = await apiGet({ action: 'address', address: addr });
+  const { data } = (await apiGet({
+    action: 'address',
+    address: addr,
+  })) as { data: Record<string, unknown> };
 
-  // Haskoin balance:
-  // { address, confirmed, unconfirmed, utxo, txs, received }
   const confirmed = Number(data.confirmed ?? 0);
   const unconfirmed = Number(data.unconfirmed ?? 0);
   const received = Number(data.received ?? confirmed);
@@ -45,11 +65,12 @@ export async function fetchAddressTransactions(
   address: string
 ): Promise<ProviderTx[]> {
   const addr = normalizeAddress(address);
-  const { data } = await apiGet({
+  const { data } = (await apiGet({
     action: 'txs',
     address: addr,
     limit: '50',
-  });
+  })) as { data: unknown };
+
   if (!Array.isArray(data)) return [];
 
   return data.map((raw: Record<string, unknown>): ProviderTx => {
