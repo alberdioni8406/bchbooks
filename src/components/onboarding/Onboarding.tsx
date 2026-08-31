@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 
-var DONATION = 'bitcoincash:qrtv37u522gz8a5lezfqk5vukly93cu7gc8tn09040';
+var DONATION = 'bitcoincash:qqqcvk6c8shxy63rmuv32s9yfgk52d83f5u4yam838';
 
 export function Onboarding(props: {
   onAdd: (address: string, label?: string) => Promise<void>;
