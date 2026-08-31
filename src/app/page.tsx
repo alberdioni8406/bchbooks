@@ -11,6 +11,7 @@ import {
   putAddress,
   putTransactions,
   setPreferences,
+  deleteAddress,
   uid,
 } from '@/lib/storage/db';
 import type {
@@ -21,8 +22,14 @@ import type {
   AppPreferences,
   DashboardSummary,
 } from '@/lib/types';
-import { isValidBchAddressFormat, normalizeAddress } from '@/lib/utils/bch-address';
-import { fetchAddressInfo, fetchAddressTransactions } from '@/lib/bch/adapter';
+import {
+  isValidBchAddressFormat,
+  normalizeAddress,
+} from '@/lib/utils/bch-address';
+import {
+  fetchAddressInfo,
+  fetchAddressTransactions,
+} from '@/lib/bch/adapter';
 import { normalizeProviderTxs } from '@/lib/accounting/normalize';
 import {
   getPeriodRange,
@@ -40,56 +47,91 @@ import { SettingsView } from '@/components/settings/SettingsView';
 type View = 'dashboard' | 'transactions' | 'reports' | 'categories' | 'settings';
 
 export default function Home() {
-  const [ready, setReady] = useState(false);
-  const [addresses, setAddresses] = useState<WatchedAddress[]>([]);
-  const [transactions, setTransactions] = useState<NormalizedTransaction[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [rules, setRules] = useState<ClassificationRule[]>([]);
-  const [prefs, setPrefs] = useState<AppPreferences | null>(null);
-  const [view, setView] = useState<View>('dashboard');
-  const [scanning, setScanning] = useState(false);
-  const [scanError, setScanError] = useState<string | null>(null);
-  const [selectedTx, setSelectedTx] = useState<NormalizedTransaction | null>(null);
+  var readyState = useState(false);
+  var ready = readyState[0];
+  var setReady = readyState[1];
 
-  const load = useCallback(async () => {
+  var addressesState = useState<WatchedAddress[]>([]);
+  var addresses = addressesState[0];
+  var setAddresses = addressesState[1];
+
+  var transactionsState = useState<NormalizedTransaction[]>([]);
+  var transactions = transactionsState[0];
+  var setTransactions = transactionsState[1];
+
+  var categoriesState = useState<Category[]>([]);
+  var categories = categoriesState[0];
+  var setCategories = categoriesState[1];
+
+  var rulesState = useState<ClassificationRule[]>([]);
+  var rules = rulesState[0];
+  var setRules = rulesState[1];
+
+  var prefsState = useState<AppPreferences | null>(null);
+  var prefs = prefsState[0];
+  var setPrefs = prefsState[1];
+
+  var viewState = useState<View>('dashboard');
+  var view = viewState[0];
+  var setView = viewState[1];
+
+  var scanningState = useState(false);
+  var scanning = scanningState[0];
+  var setScanning = scanningState[1];
+
+  var scanErrorState = useState<string | null>(null);
+  var scanError = scanErrorState[0];
+  var setScanError = scanErrorState[1];
+
+  var selectedTxState = useState<NormalizedTransaction | null>(null);
+  var selectedTx = selectedTxState[0];
+  var setSelectedTx = selectedTxState[1];
+
+  var load = useCallback(async function () {
     await ensureDefaults();
-    const [addrs, txs, cats, rls, pr] = await Promise.all([
+    var results = await Promise.all([
       getAllAddresses(),
       getAllTransactions(),
       getAllCategories(),
       getAllRules(),
       getPreferences(),
     ]);
-    setAddresses(addrs);
-    setTransactions(txs);
-    setCategories(cats);
-    setRules(rls);
-    setPrefs(pr);
+    setAddresses(results[0]);
+    setTransactions(results[1]);
+    setCategories(results[2]);
+    setRules(results[3]);
+    setPrefs(results[4]);
     setReady(true);
   }, []);
 
-  useEffect(() => {
-    load().catch(console.error);
-  }, [load]);
+  useEffect(
+    function () {
+      load().catch(console.error);
+    },
+    [load]
+  );
 
-  const scanAddress = async (rawAddress: string, label = '') => {
+  async function scanAddress(rawAddress: string, label?: string) {
+    var labelText = label || '';
     setScanError(null);
     if (!isValidBchAddressFormat(rawAddress)) {
       setScanError('That does not look like a valid Bitcoin Cash address.');
       return;
     }
-    const address = normalizeAddress(rawAddress);
+    var address = normalizeAddress(rawAddress);
     setScanning(true);
     try {
-      const info = await fetchAddressInfo(address);
-      const providerTxs = await fetchAddressTransactions(address);
+      var info = await fetchAddressInfo(address);
+      var providerTxs = await fetchAddressTransactions(address);
 
-      const existing = addresses.find((a) => a.address === address);
-      const watched: WatchedAddress = {
-        id: existing?.id || uid(),
-        address,
-        label: label || existing?.label || shortLabel(address),
-        addedAt: existing?.addedAt || new Date().toISOString(),
+      var existing = addresses.find(function (a) {
+        return a.address === address;
+      });
+      var watched: WatchedAddress = {
+        id: existing ? existing.id : uid(),
+        address: address,
+        label: labelText || (existing && existing.label) || shortLabel(address),
+        addedAt: existing ? existing.addedAt : new Date().toISOString(),
         lastScannedAt: new Date().toISOString(),
         balanceBch: info.balanceSats / 1e8,
         totalReceivedBch: info.totalReceivedSats / 1e8,
@@ -98,9 +140,13 @@ export default function Home() {
       };
       await putAddress(watched);
 
-      const fiat = prefs?.fiatCurrency || 'USD';
-      const allAddrs = [...addresses.map((a) => a.address), address];
-      const normalized = await normalizeProviderTxs(
+      var fiat = (prefs && prefs.fiatCurrency) || 'USD';
+      var allAddrs = addresses
+        .map(function (a) {
+          return a.address;
+        })
+        .concat([address]);
+      var normalized = await normalizeProviderTxs(
         providerTxs,
         address,
         allAddrs,
@@ -112,27 +158,50 @@ export default function Home() {
 
       await load();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Could not scan address';
+      var msg = e instanceof Error ? e.message : 'Could not scan address';
       setScanError(
-        msg.includes('unavailable') || msg.includes('timed')
+        msg.indexOf('unavailable') !== -1 || msg.indexOf('timed') !== -1
           ? 'The BCH data provider is temporarily unavailable. Please try again in a moment.'
           : msg
       );
     } finally {
       setScanning(false);
     }
-  };
+  }
 
-  const refreshAll = async () => {
-    for (const a of addresses) {
-      await scanAddress(a.address, a.label);
+  async function refreshAll() {
+    for (var i = 0; i < addresses.length; i++) {
+      await scanAddress(addresses[i].address, addresses[i].label);
     }
-  };
+  }
+
+  async function goHome() {
+    var ok = window.confirm(
+      'Return to the home screen and start over?\n\n' +
+        'Watched addresses will be removed from this browser. ' +
+        'You can add an address again anytime. Local data never leaves your device.'
+    );
+    if (!ok) return;
+    try {
+      for (var i = 0; i < addresses.length; i++) {
+        await deleteAddress(addresses[i].id);
+      }
+      setAddresses([]);
+      setTransactions([]);
+      setView('dashboard');
+      setScanError(null);
+      setSelectedTx(null);
+    } catch (e) {
+      setScanError(
+        e instanceof Error ? e.message : 'Could not reset local data'
+      );
+    }
+  }
 
   if (!ready) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p className="text-slate-500 text-sm">Loading BCHBooks…</p>
+        <p className="text-sm text-slate-500">Loading BCHBooks…</p>
       </div>
     );
   }
@@ -147,13 +216,13 @@ export default function Home() {
     );
   }
 
-  const period = getPeriodRange(
-    prefs?.period || 'this_month',
-    prefs?.customFrom,
-    prefs?.customTo
+  var period = getPeriodRange(
+    (prefs && prefs.period) || 'this_month',
+    prefs ? prefs.customFrom : null,
+    prefs ? prefs.customTo : null
   );
-  const periodTxs = filterByPeriod(transactions, period.from, period.to);
-  const summary: DashboardSummary = buildDashboardSummary(
+  var periodTxs = filterByPeriod(transactions, period.from, period.to);
+  var summary: DashboardSummary = buildDashboardSummary(
     periodTxs,
     categories,
     period.label
@@ -163,16 +232,17 @@ export default function Home() {
     <AppShell
       view={view}
       onViewChange={setView}
+      onHome={goHome}
       addressCount={addresses.length}
       uncategorized={summary.uncategorizedCount}
     >
-      {view === 'dashboard' && (
+      {view === 'dashboard' ? (
         <DashboardView
           summary={summary}
-          period={prefs?.period || 'this_month'}
-          onPeriodChange={async (p) => {
+          period={(prefs && prefs.period) || 'this_month'}
+          onPeriodChange={async function (p) {
             if (!prefs) return;
-            const next = { ...prefs, period: p };
+            var next = Object.assign({}, prefs, { period: p });
             await setPreferences(next);
             setPrefs(next);
           }}
@@ -181,8 +251,8 @@ export default function Home() {
           transactions={periodTxs}
           categories={categories}
         />
-      )}
-      {view === 'transactions' && (
+      ) : null}
+      {view === 'transactions' ? (
         <TransactionsView
           transactions={transactions}
           categories={categories}
@@ -190,24 +260,24 @@ export default function Home() {
           onSelect={setSelectedTx}
           onReload={load}
         />
-      )}
-      {view === 'reports' && (
+      ) : null}
+      {view === 'reports' ? (
         <ReportsView
           transactions={periodTxs}
           categories={categories}
           periodLabel={period.label}
           prefs={prefs}
         />
-      )}
-      {view === 'categories' && (
+      ) : null}
+      {view === 'categories' ? (
         <CategoriesView
           categories={categories}
           rules={rules}
           addresses={addresses}
           onReload={load}
         />
-      )}
-      {view === 'settings' && (
+      ) : null}
+      {view === 'settings' ? (
         <SettingsView
           addresses={addresses}
           prefs={prefs}
@@ -215,17 +285,17 @@ export default function Home() {
           scanning={scanning}
           scanError={scanError}
           onReload={load}
-          onPrefsChange={async (p) => {
+          onPrefsChange={async function (p) {
             await setPreferences(p);
             setPrefs(p);
           }}
         />
-      )}
+      ) : null}
     </AppShell>
   );
 }
 
 function shortLabel(addr: string) {
-  const a = addr.replace('bitcoincash:', '');
+  var a = addr.replace('bitcoincash:', '');
   return a.slice(0, 6) + '…' + a.slice(-4);
 }
