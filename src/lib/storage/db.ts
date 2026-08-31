@@ -79,8 +79,8 @@ function withStore<T>(
       var store = tx.objectStore(storeName);
       var result = fn(store);
       tx.oncomplete = function () {
-        if (result && 'result' in result) {
-          resolve(result.result as T);
+        if (result && typeof result === 'object' && 'result' in result) {
+          resolve((result as IDBRequest<T>).result as T);
         } else {
           resolve(undefined as T);
         }
@@ -88,9 +88,10 @@ function withStore<T>(
       tx.onerror = function () {
         reject(tx.error);
       };
-      if (result && 'onerror' in result) {
-        result.onerror = function () {
-          reject(result.error);
+      if (result && typeof result === 'object' && 'onerror' in result) {
+        var req = result as IDBRequest<T>;
+        req.onerror = function () {
+          reject(req.error);
         };
       }
     });
