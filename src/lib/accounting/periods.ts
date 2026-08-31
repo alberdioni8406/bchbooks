@@ -150,16 +150,14 @@ export function buildMonthlyReport(
 
   return {
     periodLabel,
-    revenue,
-    expenses,
-    totalRevenueFiat,
-    totalExpensesFiat,
-    netFiat: totalRevenueFiat - totalExpensesFiat,
+    revenueFiat,
+    expensesFiat,
+    netFiat: revenueFiat - expensesFiat,
     bchReceived,
     bchSpent,
     transactionCount: txs.length,
-    transfersCount: transfers,
     uncategorizedCount: uncategorized,
+    transfersCount: transfers,
   };
 }
 
