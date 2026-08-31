@@ -1,4 +1,11 @@
-import type { AccountingPeriodPreset, NormalizedTransaction, DashboardSummary, MonthlyReport, Category, ReportCategoryLine } from '../types';
+import type {
+  AccountingPeriodPreset,
+  NormalizedTransaction,
+  DashboardSummary,
+  MonthlyReport,
+  Category,
+  ReportCategoryLine,
+} from '../types';
 
 export function getPeriodRange(
   preset: AccountingPeriodPreset | 'custom',
@@ -6,8 +13,10 @@ export function getPeriodRange(
   customTo?: string | null
 ): { from: Date; to: Date; label: string } {
   const now = new Date();
-  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const endOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+  const startOfDay = (d: Date) =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const endOfDay = (d: Date) =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
 
   if (preset === 'custom' && customFrom && customTo) {
     return {
@@ -23,12 +32,20 @@ export function getPeriodRange(
   switch (preset) {
     case 'this_month': {
       const from = new Date(y, m, 1);
-      return { from, to: endOfDay(now), label: from.toLocaleString('en', { month: 'long', year: 'numeric' }) };
+      return {
+        from,
+        to: endOfDay(now),
+        label: from.toLocaleString('en', { month: 'long', year: 'numeric' }),
+      };
     }
     case 'last_month': {
       const from = new Date(y, m - 1, 1);
       const to = new Date(y, m, 0, 23, 59, 59, 999);
-      return { from, to, label: from.toLocaleString('en', { month: 'long', year: 'numeric' }) };
+      return {
+        from,
+        to,
+        label: from.toLocaleString('en', { month: 'long', year: 'numeric' }),
+      };
     }
     case 'this_quarter': {
       const q = Math.floor(m / 3);
@@ -71,7 +88,10 @@ export function buildDashboardSummary(
   const catMap = new Map(categories.map((c) => [c.id, c]));
 
   for (const t of txs) {
-    const fiat = t.valuation.available && t.valuation.fiatAmount != null ? t.valuation.fiatAmount : 0;
+    const fiat =
+      t.valuation.available && t.valuation.fiatAmount != null
+        ? t.valuation.fiatAmount
+        : 0;
     const cat = t.categoryId ? catMap.get(t.categoryId) : null;
 
     if (t.direction === 'incoming') {
@@ -96,6 +116,7 @@ export function buildDashboardSummary(
     bchSpent,
     transactionCount: txs.length,
     uncategorizedCount: uncategorized,
+    transfersCount: transfers,
   };
 }
 
@@ -113,7 +134,10 @@ export function buildMonthlyReport(
   let transfers = 0;
 
   for (const t of txs) {
-    const fiat = t.valuation.available && t.valuation.fiatAmount != null ? Math.abs(t.valuation.fiatAmount) : 0;
+    const fiat =
+      t.valuation.available && t.valuation.fiatAmount != null
+        ? Math.abs(t.valuation.fiatAmount)
+        : 0;
     if (t.direction === 'incoming') bchReceived += t.amountBch;
     if (t.direction === 'outgoing') bchSpent += t.amountBch;
     if (t.direction === 'internal') {
@@ -143,25 +167,34 @@ export function buildMonthlyReport(
   }
 
   const all = Array.from(lines.values());
-  const revenue = all.filter((l) => l.type === 'revenue').sort((a, b) => b.totalFiat - a.totalFiat);
-  const expenses = all.filter((l) => l.type === 'expense').sort((a, b) => b.totalFiat - a.totalFiat);
+  const revenue = all
+    .filter((l) => l.type === 'revenue')
+    .sort((a, b) => b.totalFiat - a.totalFiat);
+  const expenses = all
+    .filter((l) => l.type === 'expense')
+    .sort((a, b) => b.totalFiat - a.totalFiat);
   const totalRevenueFiat = revenue.reduce((s, l) => s + l.totalFiat, 0);
   const totalExpensesFiat = expenses.reduce((s, l) => s + l.totalFiat, 0);
 
   return {
     periodLabel,
-    revenueFiat,
-    expensesFiat,
-    netFiat: revenueFiat - expensesFiat,
+    revenue,
+    expenses,
+    totalRevenueFiat,
+    totalExpensesFiat,
+    netFiat: totalRevenueFiat - totalExpensesFiat,
     bchReceived,
     bchSpent,
     transactionCount: txs.length,
-    uncategorizedCount: uncategorized,
     transfersCount: transfers,
+    uncategorizedCount: uncategorized,
   };
 }
 
-export function formatFiat(n: number | null | undefined, currency = 'USD'): string {
+export function formatFiat(
+  n: number | null | undefined,
+  currency = 'USD'
+): string {
   if (n == null || !Number.isFinite(n)) return '—';
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -173,5 +206,5 @@ export function formatFiat(n: number | null | undefined, currency = 'USD'): stri
 
 export function formatBch(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return '—';
-  return `${n.toFixed(8).replace(/\.?0+$/, '')} BCH`;
+  return `\( {n.toFixed(8).replace(/\.?0+ \)/, '')} BCH`;
 }
