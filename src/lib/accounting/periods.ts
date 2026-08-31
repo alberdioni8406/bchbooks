@@ -206,5 +206,7 @@ export function formatFiat(
 
 export function formatBch(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return '—';
-  return `\( {n.toFixed(8).replace(/\.?0+ \)/, '')} BCH`;
+  var s = n.toFixed(8);
+  s = s.replace(/\.?0+$/, '');
+  return s + ' BCH';
 }
