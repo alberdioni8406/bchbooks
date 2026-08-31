@@ -12,6 +12,7 @@ import {
   putTransactions,
   setPreferences,
   deleteAddress,
+  deleteTransactionsForAddress,
   uid,
 } from '@/lib/storage/db';
 import type {
@@ -146,10 +147,16 @@ export default function Home() {
           return a.address;
         })
         .concat([address]);
+      // unique addresses
+      var uniq: string[] = [];
+      for (var i = 0; i < allAddrs.length; i++) {
+        if (uniq.indexOf(allAddrs[i]) === -1) uniq.push(allAddrs[i]);
+      }
+
       var normalized = await normalizeProviderTxs(
         providerTxs,
         address,
-        allAddrs,
+        uniq,
         rules,
         categories,
         fiat
@@ -175,15 +182,27 @@ export default function Home() {
     }
   }
 
+  async function removeAddress(id: string) {
+    var target = addresses.find(function (a) {
+      return a.id === id;
+    });
+    if (!target) return;
+    await deleteTransactionsForAddress(target.address);
+    await deleteAddress(id);
+    setSelectedTx(null);
+    await load();
+  }
+
   async function goHome() {
     var ok = window.confirm(
       'Return to the home screen and start over?\n\n' +
-        'Watched addresses will be removed from this browser. ' +
-        'You can add an address again anytime. Local data never leaves your device.'
+        'All watched addresses and their local transaction records will be removed from this browser. ' +
+        'You can add addresses again anytime.'
     );
     if (!ok) return;
     try {
       for (var i = 0; i < addresses.length; i++) {
+        await deleteTransactionsForAddress(addresses[i].address);
         await deleteAddress(addresses[i].id);
       }
       setAddresses([]);
@@ -282,6 +301,7 @@ export default function Home() {
           addresses={addresses}
           prefs={prefs}
           onAddAddress={scanAddress}
+          onRemoveAddress={removeAddress}
           scanning={scanning}
           scanError={scanError}
           onReload={load}
