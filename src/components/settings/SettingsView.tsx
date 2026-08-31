@@ -128,23 +128,26 @@ export function SettingsView({
 
       {/* Support / donation */}
       <section className="rounded-2xl border border-teal-100 bg-teal-50/50 p-5">
-        <h2 className="text-sm font-semibold text-teal-900">Support BCHBooks</h2>
-        <p className="mt-1 text-sm text-teal-800">
-          BCHBooks is free. If it helps your business, consider a small BCH donation.
+        <h2 className="text-sm font-semibold text-teal-900">
+          Support BCHBooks
+        </h2>
+        <p className="mt-2 text-sm text-teal-800">
+          BCHBooks is free and read-only by design. Building and running it is
+          not: servers, explorer access, and the hours to keep accounting honest
+          for Bitcoin Cash all add up. Independent builders fund that work with
+          sats from people who actually use the tools.
         </p>
-        {donation && !donation.includes('qqqqqq') ? (
-          <div className="mt-3 break-all rounded-lg bg-white p-3 font-mono text-xs text-slate-700">
-            {donation}
-          </div>
-        ) : (
-          <p className="mt-3 text-xs text-slate-500">
-            Set your donation address in the code (DEFAULT_DONATION_ADDRESS in{' '}
-            <code>src/lib/types.ts</code>) or replace the placeholder in Settings storage.
-          </p>
-        )}
+        <p className="mt-2 text-sm text-teal-800">
+          If this ledger saves you time or friction, send what feels fair. Every
+          sat helps keep the project alive, improved, and free of the usual
+          extraction model.
+        </p>
+        <div className="mt-3 break-all rounded-lg bg-white p-3 font-mono text-xs text-slate-700">
+          bitcoincash:qrtv37u522gz8a5lezfqk5vukly93cu7gc8tn09040
+        </div>
         <p className="mt-2 text-xs text-slate-500">
-          Monetization (Pro / Business tiers) can be added later when needed. For now
-          everything is free.
+          Cypherpunk default: voluntary support, no gate, no custody, no seed
+          phrases — ever.
         </p>
       </section>
     </div>
