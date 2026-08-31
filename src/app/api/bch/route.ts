@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
  */
 
 const HASKOIN = 'https://api.blockchain.info/haskoin-store/bch';
-const COINPAPAPRIKA = 'https://api.coinpaprika.com/v1';
+const COINPAPRIKA = 'https://api.coinpaprika.com/v1';
 const BCH_ID = 'bch-bitcoin-cash';
 
 function stripPrefix(address: string): string {
