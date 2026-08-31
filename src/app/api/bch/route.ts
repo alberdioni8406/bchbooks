@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 /**
- * Lightweight proxy for BCH explorer data.
- * Primary: bchexplorer.cash (Esplora-style, public)
- * Never returns fabricated transaction data.
+ * BCH data proxy
+ * - Chain: Haskoin Store mirror (blockchain.info)
+ * - Prices: CoinPaprika
+ * Never fabricates transaction or price data.
  */
 
-const BASE = 'https://bchexplorer.cash/api';
+const HASKOIN = 'https://api.blockchain.info/haskoin-store/bch';
+const COINPAPAPRIKA = 'https://api.coinpaprika.com/v1';
+const BCH_ID = 'bch-bitcoin-cash';
+
+function stripPrefix(address: string): string {
+  return address.replace(/^bitcoincash:/i, '').trim();
+}
 
 async function fetchWithTimeout(url: string, ms = 15000): Promise<Response> {
   const controller = new AbortController();
@@ -15,7 +22,6 @@ async function fetchWithTimeout(url: string, ms = 15000): Promise<Response> {
     return await fetch(url, {
       signal: controller.signal,
       headers: { Accept: 'application/json' },
-      // avoid Next caching failures across deploys
       cache: 'no-store',
     });
   } finally {
@@ -31,81 +37,64 @@ export async function GET(req: NextRequest) {
 
   try {
     if (action === 'address' && address) {
+      const addr = stripPrefix(address);
       const res = await fetchWithTimeout(
-        `\( {BASE}/address/ \){encodeURIComponent(address)}`
+        `\( {HASKOIN}/address/ \){encodeURIComponent(addr)}/balance`
       );
       if (!res.ok) {
         const body = await res.text().catch(() => '');
         const isInvalid =
           res.status === 400 ||
-          body.toLowerCase().includes('invalid');
+          res.status === 404 ||
+          body.includes('invalid') ||
+          body.includes('not-found');
         return NextResponse.json(
           {
             error: isInvalid
-              ? 'Invalid Bitcoin Cash address'
-              : 'Provider unavailable or address not found',
+              ? 'Invalid Bitcoin Cash address or no data found'
+              : 'Provider unavailable',
             status: res.status,
-            detail: body.slice(0, 200),
           },
           { status: isInvalid ? 400 : 502 }
         );
       }
       const data = await res.json();
-      return NextResponse.json({ provider: 'bchexplorer.cash', data });
+      return NextResponse.json({ provider: 'haskoin-mirror', data });
     }
 
     if (action === 'txs' && address) {
-      // Use /txs (works) — do NOT use /txs/chain (405 on this provider)
-      const [txsRes, mempoolRes] = await Promise.all([
-        fetchWithTimeout(
-          `\( {BASE}/address/ \){encodeURIComponent(address)}/txs`
-        ),
-        fetchWithTimeout(
-          `\( {BASE}/address/ \){encodeURIComponent(address)}/txs/mempool`
-        ),
-      ]);
-
-      if (!txsRes.ok && !mempoolRes.ok) {
-        const body = await txsRes.text().catch(() => '');
+      const addr = stripPrefix(address);
+      const limit = searchParams.get('limit') || '50';
+      const res = await fetchWithTimeout(
+        `\( {HASKOIN}/address/ \){encodeURIComponent(addr)}/transactions/full?limit=${limit}`
+      );
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
         const isInvalid =
-          txsRes.status === 400 ||
-          body.toLowerCase().includes('invalid');
+          res.status === 400 ||
+          res.status === 404 ||
+          body.includes('invalid') ||
+          body.includes('not-found');
         return NextResponse.json(
           {
             error: isInvalid
               ? 'Invalid Bitcoin Cash address'
-              : 'Could not load transactions from provider',
-            status: txsRes.status,
+              : 'Could not load transactions',
+            status: res.status,
           },
           { status: isInvalid ? 400 : 502 }
         );
       }
-
-      const confirmed = txsRes.ok ? await txsRes.json() : [];
-      const mempool = mempoolRes.ok ? await mempoolRes.json() : [];
-
-      // Deduplicate by txid (mempool may overlap)
-      const seen = new Set<string>();
-      const merged: unknown[] = [];
-      for (const tx of [
-        ...(Array.isArray(mempool) ? mempool : []),
-        ...(Array.isArray(confirmed) ? confirmed : []),
-      ]) {
-        const id = (tx as { txid?: string })?.txid;
-        if (!id || seen.has(id)) continue;
-        seen.add(id);
-        merged.push(tx);
-      }
-
+      const data = await res.json();
       return NextResponse.json({
-        provider: 'bchexplorer.cash',
-        data: merged,
+        provider: 'haskoin-mirror',
+        data: Array.isArray(data) ? data : [],
       });
     }
 
     if (action === 'tx' && txid) {
       const res = await fetchWithTimeout(
-        `\( {BASE}/tx/ \){encodeURIComponent(txid)}`
+        `\( {HASKOIN}/transaction/ \){encodeURIComponent(txid)}`
       );
       if (!res.ok) {
         return NextResponse.json(
@@ -114,50 +103,113 @@ export async function GET(req: NextRequest) {
         );
       }
       const data = await res.json();
-      return NextResponse.json({ provider: 'bchexplorer.cash', data });
+      return NextResponse.json({ provider: 'haskoin-mirror', data });
     }
 
     if (action === 'price') {
-      const res = await fetchWithTimeout(`${BASE}/v1/prices`);
+      const res = await fetchWithTimeout(
+        `\( {COINOBAPRIKA}/tickers/ \){BCH_ID}`
+      );
       if (!res.ok) {
-        return NextResponse.json(
-          { error: 'Price unavailable' },
-          { status: 502 }
-        );
+        return NextResponse.json({ error: 'Price unavailable' }, { status: 502 });
       }
-      const data = await res.json();
-      return NextResponse.json({ provider: 'bchexplorer.cash', data });
+      const raw = await res.json();
+      const usd = raw?.quotes?.USD?.price;
+      if (typeof usd !== 'number') {
+        return NextResponse.json({ error: 'Price unavailable' }, { status: 502 });
+      }
+      return NextResponse.json({
+        provider: 'coinpaprika',
+        data: {
+          USD: usd,
+          EUR: raw?.quotes?.EUR?.price ?? null,
+          GBP: raw?.quotes?.GBP?.price ?? null,
+        },
+      });
     }
 
     if (action === 'historical-price') {
       const ts = searchParams.get('timestamp');
-      const currency = searchParams.get('currency') || 'USD';
+      const currency = (searchParams.get('currency') || 'USD').toUpperCase();
       if (!ts) {
+        return NextResponse.json({ error: 'timestamp required' }, { status: 400 });
+      }
+
+      const date = new Date(Number(ts) * 1000);
+      if (Number.isNaN(date.getTime())) {
         return NextResponse.json(
-          { error: 'timestamp required' },
+          { error: 'Invalid timestamp', available: false },
           { status: 400 }
         );
       }
+
+      const yyyy = date.getUTCFullYear();
+      const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(date.getUTCDate()).padStart(2, '0');
+      const start = `\( {yyyy}- \){mm}-${dd}`;
+
+      const endDate = new Date(date);
+      endDate.setUTCDate(endDate.getUTCDate() + 1);
+      const end = `\( {endDate.getUTCFullYear()}- \){String(
+        endDate.getUTCMonth() + 1
+      ).padStart(2, '0')}-${String(endDate.getUTCDate()).padStart(2, '0')}`;
+
       const res = await fetchWithTimeout(
-        `\( {BASE}/v1/historical-price?currency= \){currency}&timestamp=${ts}`
+        `\( {COINOBAPRIKA}/tickers/ \){BCH_ID}/historical?start=\( {start}&end= \){end}&interval=1d`
       );
+
       if (!res.ok) {
         return NextResponse.json(
-          { error: 'Historical price unavailable', available: false },
-          { status: 502 }
+          {
+            error: 'Historical price unavailable',
+            available: false,
+            provider: 'coinpaprika',
+          },
+          { status: 200 }
         );
       }
-      const data = await res.json();
+
+      const rows = await res.json();
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return NextResponse.json(
+          {
+            error: 'Historical price unavailable',
+            available: false,
+            provider: 'coinpaprika',
+          },
+          { status: 200 }
+        );
+      }
+
+      const point = rows[0];
+      const rate = typeof point.price === 'number' ? point.price : null;
+      if (rate == null || rate <= 0) {
+        return NextResponse.json(
+          {
+            error: 'Historical price unavailable',
+            available: false,
+            provider: 'coinpaprika',
+          },
+          { status: 200 }
+        );
+      }
+
       return NextResponse.json({
-        provider: 'bchexplorer.cash',
-        data,
+        provider: 'coinpaprika',
         available: true,
+        data: {
+          [currency]: rate,
+          USD: rate,
+          price: rate,
+          timestamp: point.timestamp || start,
+        },
       });
     }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Provider request failed';
+    const message =
+      err instanceof Error ? err.message : 'Provider request failed';
     return NextResponse.json(
       {
         error: message.includes('abort')
