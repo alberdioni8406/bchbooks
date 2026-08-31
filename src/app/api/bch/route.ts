@@ -8,9 +8,11 @@ function stripPrefix(address: string): string {
   return address.replace(/^bitcoincash:/i, '').trim();
 }
 
-async function fetchWithTimeout(url: string, ms = 15000): Promise<Response> {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), ms);
+async function fetchWithTimeout(url: string, ms = 20000): Promise<Response> {
+  var controller = new AbortController();
+  var id = setTimeout(function () {
+    controller.abort();
+  }, ms);
   try {
     return await fetch(url, {
       signal: controller.signal,
@@ -23,31 +25,28 @@ async function fetchWithTimeout(url: string, ms = 15000): Promise<Response> {
 }
 
 function json(data: unknown, status = 200) {
-  return NextResponse.json(data, { status });
+  return NextResponse.json(data, { status: status });
 }
 
 export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
-    const action = searchParams.get('action');
-    const address = searchParams.get('address');
-    const txid = searchParams.get('txid');
+    var searchParams = new URL(req.url).searchParams;
+    var action = searchParams.get('action');
+    var address = searchParams.get('address');
+    var txid = searchParams.get('txid');
 
     if (action === 'address' && address) {
-      const addr = stripPrefix(address);
-      const url =
-        HASKOIN +
-        '/address/' +
-        encodeURIComponent(addr) +
-        '/balance';
-      const res = await fetchWithTimeout(url);
-      const text = await res.text();
+      var addr = stripPrefix(address);
+      var url =
+        HASKOIN + '/address/' + encodeURIComponent(addr) + '/balance';
+      var res = await fetchWithTimeout(url);
+      var text = await res.text();
       if (!res.ok) {
-        const isInvalid =
+        var isInvalid =
           res.status === 400 ||
           res.status === 404 ||
-          text.includes('invalid') ||
-          text.includes('not-found');
+          text.indexOf('invalid') !== -1 ||
+          text.indexOf('not-found') !== -1;
         return json(
           {
             error: isInvalid
@@ -59,76 +58,84 @@ export async function GET(req: NextRequest) {
         );
       }
       try {
-        const data = JSON.parse(text);
-        return json({ provider: 'haskoin-mirror', data });
-      } catch {
+        var data = JSON.parse(text);
+        return json({ provider: 'haskoin-mirror', data: data });
+      } catch (e) {
         return json({ error: 'Provider returned invalid data' }, 502);
       }
     }
 
     if (action === 'txs' && address) {
-      const addr = stripPrefix(address);
-      const limit = searchParams.get('limit') || '50';
-      const url =
+      var addr2 = stripPrefix(address);
+      var limit = searchParams.get('limit') || '50';
+      var offset = searchParams.get('offset') || '0';
+      var url2 =
         HASKOIN +
         '/address/' +
-        encodeURIComponent(addr) +
+        encodeURIComponent(addr2) +
         '/transactions/full?limit=' +
-        limit;
-      const res = await fetchWithTimeout(url);
-      const text = await res.text();
-      if (!res.ok) {
-        const isInvalid =
-          res.status === 400 ||
-          res.status === 404 ||
-          text.includes('invalid') ||
-          text.includes('not-found');
+        limit +
+        '&offset=' +
+        offset;
+      var res2 = await fetchWithTimeout(url2);
+      var text2 = await res2.text();
+      if (!res2.ok) {
+        var isInvalid2 =
+          res2.status === 400 ||
+          res2.status === 404 ||
+          text2.indexOf('invalid') !== -1 ||
+          text2.indexOf('not-found') !== -1;
         return json(
           {
-            error: isInvalid
+            error: isInvalid2
               ? 'Invalid Bitcoin Cash address'
               : 'Could not load transactions',
-            status: res.status,
+            status: res2.status,
           },
-          isInvalid ? 400 : 502
+          isInvalid2 ? 400 : 502
         );
       }
       try {
-        const data = JSON.parse(text);
+        var data2 = JSON.parse(text2);
         return json({
           provider: 'haskoin-mirror',
-          data: Array.isArray(data) ? data : [],
+          data: Array.isArray(data2) ? data2 : [],
+          offset: Number(offset),
+          limit: Number(limit),
         });
-      } catch {
+      } catch (e) {
         return json({ error: 'Provider returned invalid data' }, 502);
       }
     }
 
     if (action === 'tx' && txid) {
-      const url = HASKOIN + '/transaction/' + encodeURIComponent(txid);
-      const res = await fetchWithTimeout(url);
-      const text = await res.text();
-      if (!res.ok) {
-        return json({ error: 'Transaction not found', status: res.status }, 404);
+      var url3 = HASKOIN + '/transaction/' + encodeURIComponent(txid);
+      var res3 = await fetchWithTimeout(url3);
+      var text3 = await res3.text();
+      if (!res3.ok) {
+        return json(
+          { error: 'Transaction not found', status: res3.status },
+          404
+        );
       }
       try {
-        const data = JSON.parse(text);
-        return json({ provider: 'haskoin-mirror', data });
-      } catch {
+        var data3 = JSON.parse(text3);
+        return json({ provider: 'haskoin-mirror', data: data3 });
+      } catch (e) {
         return json({ error: 'Provider returned invalid data' }, 502);
       }
     }
 
     if (action === 'price') {
-      const url = COINOBAPRIKA + '/tickers/' + BCH_ID;
-      const res = await fetchWithTimeout(url);
-      const text = await res.text();
-      if (!res.ok) {
+      var url4 = COINOBAPRIKA + '/tickers/' + BCH_ID;
+      var res4 = await fetchWithTimeout(url4);
+      var text4 = await res4.text();
+      if (!res4.ok) {
         return json({ error: 'Price unavailable', available: false }, 502);
       }
       try {
-        const raw = JSON.parse(text);
-        const usd = raw?.quotes?.USD?.price;
+        var raw = JSON.parse(text4);
+        var usd = raw && raw.quotes && raw.quotes.USD && raw.quotes.USD.price;
         if (typeof usd !== 'number') {
           return json({ error: 'Price unavailable', available: false }, 502);
         }
@@ -136,42 +143,42 @@ export async function GET(req: NextRequest) {
           provider: 'coinpaprika',
           data: {
             USD: usd,
-            EUR: raw?.quotes?.EUR?.price ?? null,
-            GBP: raw?.quotes?.GBP?.price ?? null,
+            EUR: raw.quotes.EUR ? raw.quotes.EUR.price : null,
+            GBP: raw.quotes.GBP ? raw.quotes.GBP.price : null,
           },
         });
-      } catch {
+      } catch (e) {
         return json({ error: 'Price unavailable', available: false }, 502);
       }
     }
 
     if (action === 'historical-price') {
-      const ts = searchParams.get('timestamp');
-      const currency = (searchParams.get('currency') || 'USD').toUpperCase();
+      var ts = searchParams.get('timestamp');
+      var currency = (searchParams.get('currency') || 'USD').toUpperCase();
       if (!ts) {
         return json({ error: 'timestamp required', available: false }, 400);
       }
 
-      const date = new Date(Number(ts) * 1000);
+      var date = new Date(Number(ts) * 1000);
       if (Number.isNaN(date.getTime())) {
         return json({ error: 'Invalid timestamp', available: false }, 400);
       }
 
-      const yyyy = date.getUTCFullYear();
-      const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
-      const dd = String(date.getUTCDate()).padStart(2, '0');
-      const start = yyyy + '-' + mm + '-' + dd;
+      var yyyy = date.getUTCFullYear();
+      var mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+      var dd = String(date.getUTCDate()).padStart(2, '0');
+      var start = yyyy + '-' + mm + '-' + dd;
 
-      const endDate = new Date(date);
+      var endDate = new Date(date);
       endDate.setUTCDate(endDate.getUTCDate() + 1);
-      const end =
+      var end =
         endDate.getUTCFullYear() +
         '-' +
         String(endDate.getUTCMonth() + 1).padStart(2, '0') +
         '-' +
         String(endDate.getUTCDate()).padStart(2, '0');
 
-      const url =
+      var url5 =
         COINOBAPRIKA +
         '/tickers/' +
         BCH_ID +
@@ -180,10 +187,10 @@ export async function GET(req: NextRequest) {
         '&end=' +
         end +
         '&interval=1d';
-      const res = await fetchWithTimeout(url);
-      const text = await res.text();
+      var res5 = await fetchWithTimeout(url5);
+      var text5 = await res5.text();
 
-      if (!res.ok) {
+      if (!res5.ok) {
         return json({
           error: 'Historical price unavailable',
           available: false,
@@ -192,7 +199,7 @@ export async function GET(req: NextRequest) {
       }
 
       try {
-        const rows = JSON.parse(text);
+        var rows = JSON.parse(text5);
         if (!Array.isArray(rows) || rows.length === 0) {
           return json({
             error: 'Historical price unavailable',
@@ -200,8 +207,8 @@ export async function GET(req: NextRequest) {
             provider: 'coinpaprika',
           });
         }
-        const point = rows[0];
-        const rate = typeof point.price === 'number' ? point.price : null;
+        var point = rows[0];
+        var rate = typeof point.price === 'number' ? point.price : null;
         if (rate == null || rate <= 0) {
           return json({
             error: 'Historical price unavailable',
@@ -209,7 +216,7 @@ export async function GET(req: NextRequest) {
             provider: 'coinpaprika',
           });
         }
-        const dataObj: Record<string, unknown> = {
+        var dataObj: Record<string, unknown> = {
           USD: rate,
           price: rate,
           timestamp: point.timestamp || start,
@@ -220,7 +227,7 @@ export async function GET(req: NextRequest) {
           available: true,
           data: dataObj,
         });
-      } catch {
+      } catch (e) {
         return json({
           error: 'Historical price unavailable',
           available: false,
@@ -237,13 +244,14 @@ export async function GET(req: NextRequest) {
       400
     );
   } catch (err) {
-    const message =
+    var message =
       err instanceof Error ? err.message : 'Provider request failed';
     return json(
       {
-        error: message.includes('abort')
-          ? 'Request timed out'
-          : 'Provider unavailable',
+        error:
+          message.indexOf('abort') !== -1
+            ? 'Request timed out'
+            : 'Provider unavailable',
         detail: message,
       },
       502
